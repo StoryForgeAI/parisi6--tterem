@@ -1,5 +1,6 @@
 "use server";
 
+import { Resend } from "resend";
 import { createReservationEmailHtml } from "@/lib/email";
 
 export async function sendReservationEmail(formData: {
@@ -11,8 +12,6 @@ export async function sendReservationEmail(formData: {
   time: string;
   notes?: string;
 }) {
-  const { Resend } = await import("resend");
-
   const apiKey = process.env.RESEND_API_KEY;
   const reservationEmail = process.env.RESERVATION_EMAIL;
 

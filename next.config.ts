@@ -9,6 +9,12 @@ const nextConfig: NextConfig = {
       },
     ],
   },
+
+  // Prevent workspace root detection issues (multiple lockfiles)
+  // Explicitly set the project root for Turbopack
+  turbopack: {
+    root: process.cwd(),
+  },
 };
 
 export default nextConfig;

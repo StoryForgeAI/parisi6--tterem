@@ -8,12 +8,22 @@ import type { Dish, Review, GalleryImage, FAQItem } from "@/types";
   3. Törölje a placeholder URL-eket (images.unsplash.com).
 */
 
+function getBaseUrl(): string {
+  if (process.env.NEXT_PUBLIC_SITE_URL) {
+    return process.env.NEXT_PUBLIC_SITE_URL;
+  }
+  if (process.env.NEXT_PUBLIC_VERCEL_URL) {
+    return `https://${process.env.NEXT_PUBLIC_VERCEL_URL}`;
+  }
+  return "http://localhost:3000";
+}
+
 export const siteConfig = {
   name: "Parisi 6",
   tagline: "Magyar konyha eleganciával",
   description:
     "A Parisi 6 Budapest szívében, a Párizsi utcában várja vendégeit autentikus magyar konyhával, elegáns környezetben és figyelmes kiszolgálással.",
-  url: process.env.NEXT_PUBLIC_SITE_URL || "https://parisi6.hu",
+  url: getBaseUrl(),
   ogImage: "/images/og-image.jpg",
   location: {
     address: "Párizsi utca 6, Budapest, 1052 Hungary",

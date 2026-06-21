@@ -1,44 +1,44 @@
-import type { ReservationData, ReservationStatus } from "@/lib/crypto";
+import { writeFileSync, readFileSync, existsSync, mkdirSync } from "fs";
+import { join } from "path";
 
-/*
-  FOGLALÁS TÁROLÓ
+const PROCESSED_FILE = join("/tmp", "parisi6-processed-ids.json");
 
-  Ez a modul az aktív foglalásokat tartja nyilván memóriában.
-  
-  Production figyelmeztetés:
-  - A memória nem osztható meg Vercel serverless függvények között.
-  - Többpéldányos környezetben használjon Vercel KV vagy adatbázist.
-  - Ez a megoldás kisebb forgalmú éttermek számára elegendő.
-*/
-
-const reservations = new Map<string, ReservationData>();
-
-export function storeReservation(data: ReservationData): void {
-  reservations.set(data.id, data);
+function getProcessedIds(): string[] {
+  try {
+    if (existsSync(PROCESSED_FILE)) {
+      const raw = readFileSync(PROCESSED_FILE, "utf-8");
+      return JSON.parse(raw);
+    }
+  } catch {
+    // ignore
+  }
+  return [];
 }
 
-export function getReservation(id: string): ReservationData | undefined {
-  return reservations.get(id);
+function saveProcessedIds(ids: string[]): void {
+  try {
+    const dir = "/tmp";
+    if (!existsSync(dir)) {
+      mkdirSync(dir, { recursive: true });
+    }
+    writeFileSync(PROCESSED_FILE, JSON.stringify(ids), "utf-8");
+  } catch {
+    // /tmp is not available (e.g. local dev without /tmp)
+  }
 }
 
-export function updateReservationStatus(
-  id: string,
-  status: ReservationStatus,
-): ReservationData | undefined {
-  const reservation = reservations.get(id);
-  if (!reservation) return undefined;
-  if (reservation.status !== "pending") return reservation;
-  const updated: ReservationData = {
-    ...reservation,
-    status,
-    processedAt: new Date().toISOString(),
-  };
-  reservations.set(id, updated);
-  return updated;
+export function markProcessed(id: string): void {
+  const ids = getProcessedIds();
+  if (!ids.includes(id)) {
+    ids.push(id);
+    saveProcessedIds(ids);
+  }
+  console.log(`[RESERVATION] Marked processed: ${id}`);
 }
 
 export function isReservationProcessed(id: string): boolean {
-  const reservation = reservations.get(id);
-  if (!reservation) return false;
-  return reservation.status !== "pending";
+  const ids = getProcessedIds();
+  const processed = ids.includes(id);
+  if (processed) console.log(`[RESERVATION] Already processed: ${id}`);
+  return processed;
 }

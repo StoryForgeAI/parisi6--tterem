@@ -2,13 +2,8 @@
 
 import { Resend } from "resend";
 import { siteConfig } from "@/data/site";
-import { generateId, createReservationToken } from "@/lib/crypto";
-import {
-  storeReservation,
-  getReservation,
-  updateReservationStatus,
-  isReservationProcessed,
-} from "@/lib/reservation-store";
+import { generateId, createReservationToken, verifyReservationToken } from "@/lib/crypto";
+import { markProcessed, isReservationProcessed } from "@/lib/reservation-store";
 import {
   createOwnerEmailHtml,
   createGuestConfirmationHtml,
@@ -18,6 +13,10 @@ import {
 export type ReservationResult =
   | { success: true; mocked?: boolean }
   | { success: false; error: string };
+
+type ActionResult =
+  | { success: true; message: string }
+  | { success: false; message: string };
 
 export async function submitReservation(formData: {
   name: string;
@@ -32,6 +31,7 @@ export async function submitReservation(formData: {
   const reservationEmail = process.env.RESERVATION_EMAIL;
 
   const reservationId = generateId();
+  console.log(`[RESERVATION] Created: ${reservationId} for ${formData.name}`);
 
   const formattedDate = new Date(formData.date).toLocaleDateString("hu-HU", {
     year: "numeric",
@@ -40,29 +40,37 @@ export async function submitReservation(formData: {
   });
 
   const baseUrl = siteConfig.url;
+  console.log(`[RESERVATION] Base URL: ${baseUrl}`);
 
-  const confirmToken = createReservationToken(reservationId, "confirm");
-  const rejectToken = createReservationToken(reservationId, "reject");
+  const tokenData = {
+    id: reservationId,
+    name: formData.name,
+    email: formData.email,
+    phone: formData.phone,
+    guests: formData.guests,
+    date: formattedDate,
+    time: formData.time,
+    notes: formData.notes,
+  };
+
+  const confirmToken = createReservationToken(tokenData, "confirm");
+  const rejectToken = createReservationToken(tokenData, "reject");
+  console.log(`[RESERVATION] Tokens generated for ${reservationId}`);
 
   const confirmUrl = `${baseUrl}/api/reservation/confirm/${confirmToken}`;
   const rejectUrl = `${baseUrl}/api/reservation/reject/${rejectToken}`;
-
-  storeReservation({
-    id: reservationId,
-    ...formData,
-    date: formattedDate,
-    status: "pending",
-    createdAt: new Date().toISOString(),
-  });
+  console.log(`[RESERVATION] Confirm URL: ${confirmUrl.substring(0, 80)}...`);
+  console.log(`[RESERVATION] Reject URL: ${rejectUrl.substring(0, 80)}...`);
 
   if (!apiKey || !reservationEmail) {
+    console.log(`[RESERVATION] No API key or email configured — mocked mode`);
     return { success: true, mocked: true };
   }
 
   const resend = new Resend(apiKey);
 
   try {
-    await resend.emails.send({
+    const emailResult = await resend.emails.send({
       from: `Parisi 6 <onboarding@resend.dev>`,
       to: reservationEmail,
       subject: `Új foglalás - ${formData.name} - ${formattedDate} ${formData.time}`,
@@ -79,115 +87,116 @@ export async function submitReservation(formData: {
       }),
     });
 
+    console.log(`[RESERVATION] Owner email sent: ${JSON.stringify(emailResult)}`);
     return { success: true };
   } catch (error) {
-    console.error("Hiba az e-mail küldésekor:", error);
+    console.error("[RESERVATION] Email send error:", error);
     return { success: false, error: "Nem sikerült elküldeni a foglalást." };
   }
 }
 
 export async function confirmReservation(
   token: string,
-): Promise<{ success: boolean; message: string }> {
-  const { verifyReservationToken } = await import("@/lib/crypto");
-  const { reservationId, valid } = verifyReservationToken(token, "confirm");
+): Promise<ActionResult> {
+  console.log(`[RESERVATION] Confirm clicked — token length: ${token.length}`);
 
-  if (!valid || !reservationId) {
+  const { payload, valid } = verifyReservationToken(token, "confirm");
+  if (!valid || !payload) {
+    console.log(`[RESERVATION] Token invalid for confirm action`);
     return { success: false, message: "Érvénytelen vagy lejárt hivatkozás." };
   }
 
-  const reservation = getReservation(reservationId);
-  if (!reservation) {
-    return { success: false, message: "A foglalás nem található." };
-  }
+  console.log(`[RESERVATION] Token valid — reservation: ${payload.id}, guest: ${payload.name}`);
 
-  if (isReservationProcessed(reservationId)) {
+  if (isReservationProcessed(payload.id)) {
+    console.log(`[RESERVATION] Already processed: ${payload.id}`);
     return {
       success: true,
-      message: `A foglalás már korábban ${reservation.status === "confirmed" ? "visszaigazolásra" : "elutasításra"} került.`,
+      message: "Ez a foglalás már feldolgozásra került.",
     };
   }
-
-  updateReservationStatus(reservationId, "confirmed");
 
   const apiKey = process.env.RESEND_API_KEY;
   if (apiKey) {
     const resend = new Resend(apiKey);
     try {
-      await resend.emails.send({
+      const emailResult = await resend.emails.send({
         from: `Parisi 6 <onboarding@resend.dev>`,
-        to: reservation.email,
+        to: payload.email,
         subject: "Foglalása visszaigazolva – Parisi 6",
         html: createGuestConfirmationHtml({
-          name: reservation.name,
-          email: reservation.email,
-          phone: reservation.phone,
-          guests: reservation.guests,
-          date: reservation.date,
-          time: reservation.time,
-          notes: reservation.notes,
+          name: payload.name,
+          email: payload.email,
+          phone: payload.phone,
+          guests: payload.guests,
+          date: payload.date,
+          time: payload.time,
+          notes: payload.notes,
         }),
       });
+      console.log(`[RESERVATION] Guest confirmation sent: ${JSON.stringify(emailResult)}`);
     } catch (err) {
-      console.error("Hiba a vendég e-mail küldésekor:", err);
+      console.error("[RESERVATION] Guest email error:", err);
     }
   }
 
+  markProcessed(payload.id);
+
   return {
     success: true,
-    message: `A foglalás sikeresen visszaigazolva ${reservation.name} részére.`,
+    message: "A vendég automatikusan értesítést kapott e-mailben.",
   };
 }
 
 export async function rejectReservation(
   token: string,
-): Promise<{ success: boolean; message: string }> {
-  const { verifyReservationToken } = await import("@/lib/crypto");
-  const { reservationId, valid } = verifyReservationToken(token, "reject");
+): Promise<ActionResult> {
+  console.log(`[RESERVATION] Reject clicked — token length: ${token.length}`);
 
-  if (!valid || !reservationId) {
+  const { payload, valid } = verifyReservationToken(token, "reject");
+  if (!valid || !payload) {
+    console.log(`[RESERVATION] Token invalid for reject action`);
     return { success: false, message: "Érvénytelen vagy lejárt hivatkozás." };
   }
 
-  const reservation = getReservation(reservationId);
-  if (!reservation) {
-    return { success: false, message: "A foglalás nem található." };
-  }
+  console.log(`[RESERVATION] Token valid — reservation: ${payload.id}, guest: ${payload.name}`);
 
-  if (isReservationProcessed(reservationId)) {
+  if (isReservationProcessed(payload.id)) {
+    console.log(`[RESERVATION] Already processed: ${payload.id}`);
     return {
       success: true,
-      message: `A foglalás már korábban ${reservation.status === "confirmed" ? "visszaigazolásra" : "elutasításra"} került.`,
+      message: "Ez a foglalás már feldolgozásra került.",
     };
   }
-
-  updateReservationStatus(reservationId, "rejected");
 
   const apiKey = process.env.RESEND_API_KEY;
   if (apiKey) {
     const resend = new Resend(apiKey);
     try {
-      await resend.emails.send({
+      const emailResult = await resend.emails.send({
         from: `Parisi 6 <onboarding@resend.dev>`,
-        to: reservation.email,
+        to: payload.email,
         subject: "Foglalásával kapcsolatban – Parisi 6",
         html: createGuestRejectionHtml({
-          name: reservation.name,
-          email: reservation.email,
-          phone: reservation.phone,
-          guests: reservation.guests,
-          date: reservation.date,
-          time: reservation.time,
-          notes: reservation.notes,
+          name: payload.name,
+          email: payload.email,
+          phone: payload.phone,
+          guests: payload.guests,
+          date: payload.date,
+          time: payload.time,
+          notes: payload.notes,
         }),
       });
+      console.log(`[RESERVATION] Guest rejection sent: ${JSON.stringify(emailResult)}`);
     } catch (err) {
-      console.error("Hiba a vendég e-mail küldésekor:", err);
+      console.error("[RESERVATION] Guest email error:", err);
     }
   }
 
+  markProcessed(payload.id);
+
   return {
     success: true,
-    message: `A foglalás elutasítva. ${reservation.name} értesítve lett e-mailben.`,
+    message: "A vendég automatikusan értesítést kapott e-mailben.",
   };
 }

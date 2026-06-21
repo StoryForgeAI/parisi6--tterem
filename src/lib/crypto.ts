@@ -1,4 +1,4 @@
-import { randomUUID } from "crypto";
+import { randomUUID, createHmac } from "crypto";
 
 const SECRET = process.env.RESEND_API_KEY || "parisi6-dev-secret-key-change-in-production";
 
@@ -18,40 +18,56 @@ export interface ReservationData {
   processedAt?: string;
 }
 
+export interface TokenPayload {
+  id: string;
+  name: string;
+  email: string;
+  phone: string;
+  guests: string;
+  date: string;
+  time: string;
+  notes?: string;
+  action: "confirm" | "reject";
+  iat: number;
+}
+
 export function generateId(): string {
   return randomUUID();
 }
 
 export function createReservationToken(
-  reservationId: string,
+  data: Omit<TokenPayload, "iat" | "action">,
   action: "confirm" | "reject",
 ): string {
-  const encoder = new TextEncoder();
-  const data = `${reservationId}:${action}:${Math.floor(Date.now() / 1000)}`;
-  const key = encoder.encode(SECRET);
-  const msg = encoder.encode(data);
-  return Buffer.from(data).toString("base64url");
+  const payload: TokenPayload = {
+    ...data,
+    action,
+    iat: Math.floor(Date.now() / 1000),
+  };
+  const encoded = Buffer.from(JSON.stringify(payload)).toString("base64url");
+  const signature = createHmac("sha256", SECRET).update(encoded).digest("base64url");
+  return `${encoded}.${signature}`;
 }
 
 export function verifyReservationToken(
   token: string,
   expectedAction: "confirm" | "reject",
-): { reservationId: string; valid: boolean } {
+): { payload: TokenPayload | null; valid: boolean } {
   try {
-    const decoded = Buffer.from(token, "base64url").toString("utf-8");
-    const parts = decoded.split(":");
-    if (parts.length < 2) return { reservationId: "", valid: false };
+    const dot = token.lastIndexOf(".");
+    if (dot === -1) return { payload: null, valid: false };
 
-    const reservationId = parts[0];
-    const action = parts[1];
+    const encoded = token.substring(0, dot);
+    const signature = token.substring(dot + 1);
 
-    if (action !== expectedAction) return { reservationId, valid: false };
+    const expectedSig = createHmac("sha256", SECRET).update(encoded).digest("base64url");
+    if (signature !== expectedSig) return { payload: null, valid: false };
 
-    const expectedToken = createReservationToken(reservationId, expectedAction);
-    if (token !== expectedToken) return { reservationId, valid: false };
+    const decoded = JSON.parse(Buffer.from(encoded, "base64url").toString("utf-8")) as TokenPayload;
+    if (decoded.action !== expectedAction) return { payload: decoded, valid: false };
 
-    return { reservationId, valid: true };
+    return { payload: decoded, valid: true };
   } catch {
-    return { reservationId: "", valid: false };
+    return { payload: null, valid: false };
   }
 }

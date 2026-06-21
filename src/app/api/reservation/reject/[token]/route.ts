@@ -9,10 +9,17 @@ export async function GET(
 
   const result = await rejectReservation(token);
 
-  const bgColor = result.success ? "#1A1817" : "#1A1817";
-  const accentColor = result.success ? "#E53935" : "#E53935";
-  const icon = result.success ? "✕" : "!";
-  const title = result.success ? "Foglalás elutasítva" : "Hiba történt";
+  const isAlreadyProcessed = result.success && result.message.includes("feldolgozásra");
+  const isError = !result.success;
+
+  const title = isError
+    ? "Hiba történt"
+    : isAlreadyProcessed
+      ? "Foglalás elutasítva"
+      : "Foglalás elutasítva";
+
+  const accentColor = isError ? "#E53935" : "#C9A84C";
+  const icon = isError ? "!" : "✕";
 
   const html = `<!DOCTYPE html>
 <html lang="hu">
@@ -33,7 +40,7 @@ export async function GET(
       padding: 20px;
     }
     .card {
-      background: ${bgColor};
+      background: #1A1817;
       border: 1px solid #2F2D2A;
       border-radius: 16px;
       padding: 48px 40px;

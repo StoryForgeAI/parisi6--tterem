@@ -1,5 +1,31 @@
 import nodemailer from "nodemailer";
 import { Resend } from "resend";
+import { readFileSync, existsSync } from "fs";
+import { join } from "path";
+
+function loadLocalEnv(): void {
+  const path = join(process.cwd(), "local-settings.json");
+  if (existsSync(path)) {
+    try {
+      const raw = readFileSync(path, "utf-8");
+      const parsed = JSON.parse(raw);
+      let count = 0;
+      for (const [key, value] of Object.entries(parsed)) {
+        if (typeof value === "string" && value.length > 0 && !process.env[key]) {
+          process.env[key] = value;
+          count++;
+        }
+      }
+      if (count > 0) {
+        console.log(`[EMAIL] Loaded ${count} env vars from local-settings.json`);
+      }
+    } catch {
+      // local-settings.json is optional
+    }
+  }
+}
+
+loadLocalEnv();
 
 export type EmailProvider = "smtp" | "resend" | "mock";
 

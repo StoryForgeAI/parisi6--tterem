@@ -12,6 +12,7 @@ function loadLocalSettings(): Record<string, string> {
       for (const [key, value] of Object.entries(parsed)) {
         if (typeof value === "string" && value.length > 0) {
           result[key] = value;
+          process.env[key] = value;
         }
       }
       return result;
@@ -22,13 +23,9 @@ function loadLocalSettings(): Record<string, string> {
   return {};
 }
 
-const localEnv = loadLocalSettings();
+loadLocalSettings();
 
 const nextConfig: NextConfig = {
-  env: {
-    ...localEnv,
-  },
-
   images: {
     remotePatterns: [
       {

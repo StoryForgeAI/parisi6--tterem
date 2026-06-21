@@ -1,9 +1,9 @@
 "use server";
 
-import { Resend } from "resend";
 import { siteConfig } from "@/data/site";
 import { generateId, createReservationToken, verifyReservationToken } from "@/lib/crypto";
 import { markProcessed, isReservationProcessed } from "@/lib/reservation-store";
+import { sendEmail, getActiveProviderInfo } from "@/lib/email-service";
 import {
   createOwnerEmailHtml,
   createGuestConfirmationHtml,
@@ -27,7 +27,6 @@ export async function submitReservation(formData: {
   time: string;
   notes?: string;
 }): Promise<ReservationResult> {
-  const apiKey = process.env.RESEND_API_KEY;
   const reservationEmail = process.env.RESERVATION_EMAIL;
 
   const reservationId = generateId();
@@ -62,37 +61,44 @@ export async function submitReservation(formData: {
   console.log(`[RESERVATION] Confirm URL: ${confirmUrl.substring(0, 80)}...`);
   console.log(`[RESERVATION] Reject URL: ${rejectUrl.substring(0, 80)}...`);
 
-  if (!apiKey || !reservationEmail) {
-    console.log(`[RESERVATION] No API key or email configured — mocked mode`);
+  const { provider, label } = getActiveProviderInfo();
+  console.log(`[RESERVATION] Email provider: ${label}`);
+
+  if (provider === "mock") {
+    console.log(`[RESERVATION] No email provider configured — mock mode`);
     return { success: true, mocked: true };
   }
 
-  const resend = new Resend(apiKey);
-
-  try {
-    const emailResult = await resend.emails.send({
-      from: `Parisi 6 <onboarding@resend.dev>`,
-      to: reservationEmail,
-      subject: `Új foglalás - ${formData.name} - ${formattedDate} ${formData.time}`,
-      html: createOwnerEmailHtml({
-        name: formData.name,
-        email: formData.email,
-        phone: formData.phone,
-        guests: formData.guests,
-        date: formattedDate,
-        time: formData.time,
-        notes: formData.notes,
-        confirmUrl,
-        rejectUrl,
-      }),
-    });
-
-    console.log(`[RESERVATION] Owner email sent: ${JSON.stringify(emailResult)}`);
-    return { success: true };
-  } catch (error) {
-    console.error("[RESERVATION] Email send error:", error);
-    return { success: false, error: "Nem sikerült elküldeni a foglalást." };
+  if (!reservationEmail) {
+    console.log(`[RESERVATION] RESERVATION_EMAIL not set — mock mode`);
+    return { success: true, mocked: true };
   }
+
+  const emailResult = await sendEmail({
+    to: reservationEmail,
+    subject: `Új foglalás - ${formData.name} - ${formattedDate} ${formData.time}`,
+    html: createOwnerEmailHtml({
+      name: formData.name,
+      email: formData.email,
+      phone: formData.phone,
+      guests: formData.guests,
+      date: formattedDate,
+      time: formData.time,
+      notes: formData.notes,
+      confirmUrl,
+      rejectUrl,
+    }),
+  });
+
+  if (!emailResult.success) {
+    console.error(`[RESERVATION] Owner email failed: ${emailResult.error}`);
+    return {
+      success: false,
+      error: `Nem sikerült elküldeni a foglalást: ${emailResult.error}`,
+    };
+  }
+
+  return { success: true };
 }
 
 export async function confirmReservation(
@@ -116,28 +122,27 @@ export async function confirmReservation(
     };
   }
 
-  const apiKey = process.env.RESEND_API_KEY;
-  if (apiKey) {
-    const resend = new Resend(apiKey);
-    try {
-      const emailResult = await resend.emails.send({
-        from: `Parisi 6 <onboarding@resend.dev>`,
-        to: payload.email,
-        subject: "Foglalása visszaigazolva – Parisi 6",
-        html: createGuestConfirmationHtml({
-          name: payload.name,
-          email: payload.email,
-          phone: payload.phone,
-          guests: payload.guests,
-          date: payload.date,
-          time: payload.time,
-          notes: payload.notes,
-        }),
-      });
-      console.log(`[RESERVATION] Guest confirmation sent: ${JSON.stringify(emailResult)}`);
-    } catch (err) {
-      console.error("[RESERVATION] Guest email error:", err);
+  const { provider } = getActiveProviderInfo();
+  if (provider !== "mock") {
+    const emailResult = await sendEmail({
+      to: payload.email,
+      subject: "Foglalása visszaigazolva – Parisi 6",
+      html: createGuestConfirmationHtml({
+        name: payload.name,
+        email: payload.email,
+        phone: payload.phone,
+        guests: payload.guests,
+        date: payload.date,
+        time: payload.time,
+        notes: payload.notes,
+      }),
+    });
+
+    if (!emailResult.success) {
+      console.error(`[RESERVATION] Guest confirmation email failed: ${emailResult.error}`);
     }
+  } else {
+    console.log(`[RESERVATION] Mock mode — guest confirmation email skipped`);
   }
 
   markProcessed(payload.id);
@@ -169,28 +174,27 @@ export async function rejectReservation(
     };
   }
 
-  const apiKey = process.env.RESEND_API_KEY;
-  if (apiKey) {
-    const resend = new Resend(apiKey);
-    try {
-      const emailResult = await resend.emails.send({
-        from: `Parisi 6 <onboarding@resend.dev>`,
-        to: payload.email,
-        subject: "Foglalásával kapcsolatban – Parisi 6",
-        html: createGuestRejectionHtml({
-          name: payload.name,
-          email: payload.email,
-          phone: payload.phone,
-          guests: payload.guests,
-          date: payload.date,
-          time: payload.time,
-          notes: payload.notes,
-        }),
-      });
-      console.log(`[RESERVATION] Guest rejection sent: ${JSON.stringify(emailResult)}`);
-    } catch (err) {
-      console.error("[RESERVATION] Guest email error:", err);
+  const { provider } = getActiveProviderInfo();
+  if (provider !== "mock") {
+    const emailResult = await sendEmail({
+      to: payload.email,
+      subject: "Foglalásával kapcsolatban – Parisi 6",
+      html: createGuestRejectionHtml({
+        name: payload.name,
+        email: payload.email,
+        phone: payload.phone,
+        guests: payload.guests,
+        date: payload.date,
+        time: payload.time,
+        notes: payload.notes,
+      }),
+    });
+
+    if (!emailResult.success) {
+      console.error(`[RESERVATION] Guest rejection email failed: ${emailResult.error}`);
     }
+  } else {
+    console.log(`[RESERVATION] Mock mode — guest rejection email skipped`);
   }
 
   markProcessed(payload.id);

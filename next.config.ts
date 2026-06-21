@@ -1,6 +1,33 @@
 import type { NextConfig } from "next";
+import { readFileSync, existsSync } from "fs";
+
+function loadLocalSettings(): Record<string, string> {
+  const path = "local-settings.json";
+  if (existsSync(path)) {
+    try {
+      const raw = readFileSync(path, "utf-8");
+      const parsed = JSON.parse(raw);
+      const result: Record<string, string> = {};
+      for (const [key, value] of Object.entries(parsed)) {
+        if (typeof value === "string" && value.length > 0) {
+          result[key] = value;
+        }
+      }
+      return result;
+    } catch {
+      // local-settings.json is optional
+    }
+  }
+  return {};
+}
+
+const localEnv = loadLocalSettings();
 
 const nextConfig: NextConfig = {
+  env: {
+    ...localEnv,
+  },
+
   images: {
     remotePatterns: [
       {
@@ -10,8 +37,6 @@ const nextConfig: NextConfig = {
     ],
   },
 
-  // Prevent workspace root detection issues (multiple lockfiles)
-  // Explicitly set the project root for Turbopack
   turbopack: {
     root: process.cwd(),
   },

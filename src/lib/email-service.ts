@@ -175,6 +175,7 @@ export function getActiveProviderInfo(): { provider: EmailProvider; label: strin
     resend: "Resend",
     mock: "Mock (nincs email konfiguráció)",
   };
+  console.log(`[EMAIL] Active provider: ${labels[provider]}`);
   return { provider, label: labels[provider] };
 }
 

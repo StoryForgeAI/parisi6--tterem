@@ -1,8 +1,9 @@
 import type { NextConfig } from "next";
 import { readFileSync, existsSync } from "fs";
+import { join } from "path";
 
 function loadLocalSettings(): Record<string, string> {
-  const path = "local-settings.json";
+  const path = join(process.cwd(), "local-settings.json");
   if (existsSync(path)) {
     try {
       const raw = readFileSync(path, "utf-8");

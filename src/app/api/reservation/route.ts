@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { sendReservationEmail } from "@/app/actions/reservation";
+import { submitReservation } from "@/app/actions/reservation";
 
 export async function POST(request: NextRequest) {
   try {
@@ -13,7 +13,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const result = await sendReservationEmail({
+    const result = await submitReservation({
       name,
       email,
       phone,

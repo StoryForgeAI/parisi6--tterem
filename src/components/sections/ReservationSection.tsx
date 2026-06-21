@@ -157,9 +157,11 @@ export function ReservationSection() {
               <h3 className="font-serif text-2xl text-foreground mb-2">
                 Köszönjük foglalását!
               </h3>
-              <p className="text-muted">
-                Visszaigazoló e-mailt küldtünk a megadott címre. Várjuk
-                szeretettel!
+              <p className="text-muted leading-relaxed max-w-lg mx-auto">
+                Köszönjük foglalását! Hamarosan visszaigazoló e-mailt küldünk a megadott e-mail címre.
+              </p>
+              <p className="text-muted-foreground text-sm mt-3 leading-relaxed max-w-lg mx-auto">
+                Kérjük, csak a visszaigazolás után tekintse véglegesnek foglalását.
               </p>
             </motion.div>
           ) : (

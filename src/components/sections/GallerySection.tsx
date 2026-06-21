@@ -1,39 +1,126 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { X, ChevronLeft, ChevronRight } from "lucide-react";
+import { X, ChevronLeft, ChevronRight, ZoomIn, ZoomOut } from "lucide-react";
 import { galleryImages } from "@/data/site";
-
-/*
-  KÉPEK CSERÉJE:
-  A galéria képeinek cseréjéhez módosítsa a galleryImages tömböt a src/data/site.ts fájlban.
-  Javasolt formátumok: 800x600 (vízszintes), 600x800 (függőleges), 600x600 (négyzet).
-  Helyezze a képeket a public/images/gallery/ mappába.
-*/
 
 export function GallerySection() {
   const [selectedIndex, setSelectedIndex] = useState<number | null>(null);
+  const [scale, setScale] = useState(1);
+  const [position, setPosition] = useState({ x: 0, y: 0 });
+  const [isDragging, setIsDragging] = useState(false);
+  const imageRef = useRef<HTMLDivElement>(null);
+  const touchStartRef = useRef<{ x: number; y: number; time: number } | null>(null);
 
-  const openLightbox = (index: number) => setSelectedIndex(index);
-  const closeLightbox = () => setSelectedIndex(null);
+  const current = selectedIndex !== null ? galleryImages[selectedIndex] : null;
 
-  const goNext = () => {
+  const openLightbox = useCallback((index: number) => {
+    setSelectedIndex(index);
+    setScale(1);
+    setPosition({ x: 0, y: 0 });
+    document.body.style.overflow = "hidden";
+  }, []);
+
+  const closeLightbox = useCallback(() => {
+    setSelectedIndex(null);
+    setScale(1);
+    setPosition({ x: 0, y: 0 });
+    document.body.style.overflow = "";
+  }, []);
+
+  const goNext = useCallback(() => {
     if (selectedIndex !== null) {
-      setSelectedIndex((selectedIndex + 1) % galleryImages.length);
+      const next = (selectedIndex + 1) % galleryImages.length;
+      setSelectedIndex(next);
+      setScale(1);
+      setPosition({ x: 0, y: 0 });
     }
-  };
+  }, [selectedIndex]);
 
-  const goPrev = () => {
+  const goPrev = useCallback(() => {
     if (selectedIndex !== null) {
-      setSelectedIndex(
-        (selectedIndex - 1 + galleryImages.length) % galleryImages.length,
-      );
+      const prev = (selectedIndex - 1 + galleryImages.length) % galleryImages.length;
+      setSelectedIndex(prev);
+      setScale(1);
+      setPosition({ x: 0, y: 0 });
     }
+  }, [selectedIndex]);
+
+  const toggleZoom = useCallback(() => {
+    setScale((prev) => (prev === 1 ? 2 : 1));
+    setPosition({ x: 0, y: 0 });
+  }, []);
+
+  useEffect(() => {
+    const handleKey = (e: KeyboardEvent) => {
+      if (selectedIndex === null) return;
+      if (e.key === "Escape") closeLightbox();
+      if (e.key === "ArrowRight") goNext();
+      if (e.key === "ArrowLeft") goPrev();
+      if (e.key === "+" || e.key === "=") setScale((s) => Math.min(3, s + 0.5));
+      if (e.key === "-") setScale((s) => Math.max(0.5, s - 0.5));
+    };
+    window.addEventListener("keydown", handleKey);
+    return () => window.removeEventListener("keydown", handleKey);
+  }, [selectedIndex, closeLightbox, goNext, goPrev]);
+
+  const handleWheel = useCallback((e: React.WheelEvent) => {
+    if (e.deltaY < 0) {
+      setScale((s) => Math.min(3, s + 0.1));
+    } else {
+      setScale((s) => Math.max(0.5, s - 0.1));
+    }
+  }, []);
+
+  const handleMouseDown = useCallback((e: React.MouseEvent) => {
+    if (scale > 1) {
+      setIsDragging(true);
+      setPosition({ x: 0, y: 0 });
+    }
+  }, [scale]);
+
+  const handleMouseMove = useCallback((e: React.MouseEvent) => {
+    if (isDragging && scale > 1) {
+      setPosition((prev) => ({
+        x: prev.x + e.movementX,
+        y: prev.y + e.movementY,
+      }));
+    }
+  }, [isDragging, scale]);
+
+  const handleMouseUp = useCallback(() => {
+    setIsDragging(false);
+  }, []);
+
+  const handleTouchStart = useCallback((e: React.TouchEvent) => {
+    const touch = e.touches[0];
+    touchStartRef.current = { x: touch.clientX, y: touch.clientY, time: Date.now() };
+  }, []);
+
+  const handleTouchEnd = useCallback((e: React.TouchEvent) => {
+    if (!touchStartRef.current) return;
+    const touch = e.changedTouches[0];
+    const dx = touch.clientX - touchStartRef.current.x;
+    const dy = touch.clientY - touchStartRef.current.y;
+    const elapsed = Date.now() - touchStartRef.current.time;
+    touchStartRef.current = null;
+
+    if (Math.abs(dx) > Math.abs(dy) && Math.abs(dx) > 50 && elapsed < 300) {
+      if (dx > 0) goPrev();
+      else goNext();
+    }
+  }, [goNext, goPrev]);
+
+  const containerStyle: React.CSSProperties = {
+    backgroundImage: current ? `url(${current.src})` : undefined,
+    backgroundSize: `${scale * 100}%`,
+    backgroundPosition: `${50 + position.x / (scale * 2)}% ${50 + position.y / (scale * 2)}%`,
+    cursor: scale > 1 ? (isDragging ? "grabbing" : "grab") : "default",
   };
 
   return (
-    <section id="gallery" className="section-padding relative overflow-hidden">
+    <section id="gallery" className="section-padding relative overflow-hidden bg-background">
       <div className="section-container">
         <motion.div
           initial={{ opacity: 0, y: 30 }}
@@ -50,14 +137,13 @@ export function GallerySection() {
           </h2>
           <div className="w-16 h-0.5 gold-gradient mx-auto mt-6 mb-6" />
           <p className="text-muted max-w-2xl mx-auto text-base sm:text-lg">
-            Pillantson be éttermünk hangulatába, és győződjön meg róla, miért
-            szeretik vendégeink ezt a helyet.
+            Pillantson be éttermünk hangulatába.
           </p>
         </motion.div>
       </div>
 
       <div className="mt-12 px-4 sm:px-6 lg:px-8 max-w-7xl mx-auto">
-        <div className="masonry-grid">
+        <div className="columns-1 sm:columns-2 lg:columns-3 xl:columns-4 gap-4 space-y-4">
           {galleryImages.map((image, i) => (
             <motion.div
               key={image.id}
@@ -66,25 +152,19 @@ export function GallerySection() {
               viewport={{ once: true }}
               transition={{ delay: i * 0.05, duration: 0.4 }}
               onClick={() => openLightbox(i)}
-              className={`masonry-item cursor-pointer group relative overflow-hidden rounded-xl ${
-                image.height > image.width
-                  ? "row-span-2"
-                  : image.height === image.width
-                    ? "row-span-1"
-                    : "row-span-1"
-              }`}
-              style={{
-                gridRowEnd: `span ${Math.ceil(image.height / 200)}`,
-              }}
+              className="break-inside-avoid cursor-pointer group relative overflow-hidden rounded-xl border border-border/50 hover:border-gold-400/30 transition-all duration-500"
             >
               <div
-                className="absolute inset-0 bg-cover bg-center transition-transform duration-700 group-hover:scale-110"
-                style={{ backgroundImage: `url(${image.src})` }}
+                className="w-full bg-cover bg-center transition-transform duration-700 group-hover:scale-110"
+                style={{
+                  backgroundImage: `url(${image.src})`,
+                  aspectRatio: `${image.width} / ${image.height}`,
+                }}
               />
               <div className="absolute inset-0 bg-background/0 group-hover:bg-background/40 transition-all duration-500" />
               <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity duration-500">
-                <span className="text-white text-sm font-medium tracking-wider uppercase">
-                  Megtekintés
+                <span className="text-white text-sm font-medium tracking-wider uppercase border border-white/40 px-4 py-2 rounded-full backdrop-blur-sm">
+                  Megnyitás
                 </span>
               </div>
             </motion.div>
@@ -93,97 +173,95 @@ export function GallerySection() {
       </div>
 
       <AnimatePresence>
-        {selectedIndex !== null && (
+        {selectedIndex !== null && current && (
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="fixed inset-0 z-[60] bg-black/95 backdrop-blur-sm flex items-center justify-center"
-            onClick={closeLightbox}
+            transition={{ duration: 0.2 }}
+            className="fixed inset-0 z-[60] bg-black/98 flex flex-col"
           >
-            <button
-              onClick={closeLightbox}
-              className="absolute top-6 right-6 text-white/70 hover:text-white transition-colors z-10"
-              aria-label="Bezárás"
-            >
-              <X className="h-8 w-8" />
-            </button>
+            {/* Top bar */}
+            <div className="absolute top-0 left-0 right-0 z-20 flex items-center justify-between px-4 sm:px-6 py-4 bg-gradient-to-b from-black/60 to-transparent">
+              <span className="text-sm text-white/70">
+                {selectedIndex + 1} / {galleryImages.length}
+                {current.alt && (
+                  <span className="hidden sm:inline"> &mdash; {current.alt}</span>
+                )}
+              </span>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={toggleZoom}
+                  className="p-2 rounded-full text-white/70 hover:text-white hover:bg-white/10 transition-all"
+                  aria-label={scale > 1 ? "Kicsinyítés" : "Nagyítás"}
+                >
+                  {scale > 1 ? <ZoomOut className="h-5 w-5" /> : <ZoomIn className="h-5 w-5" />}
+                </button>
+                <button
+                  onClick={closeLightbox}
+                  className="p-2 rounded-full text-white/70 hover:text-white hover:bg-white/10 transition-all"
+                  aria-label="Bezárás"
+                >
+                  <X className="h-6 w-6" />
+                </button>
+              </div>
+            </div>
 
+            {/* Navigation arrows */}
             <button
               onClick={(e) => { e.stopPropagation(); goPrev(); }}
-              className="absolute left-4 sm:left-8 text-white/70 hover:text-gold-400 transition-colors z-10"
-              aria-label="Előző"
+              className="absolute left-2 sm:left-6 top-1/2 -translate-y-1/2 z-20 p-3 rounded-full text-white/60 hover:text-white hover:bg-white/10 transition-all"
+              aria-label="Előző kép"
             >
-              <ChevronLeft className="h-10 w-10" />
+              <ChevronLeft className="h-8 w-8 sm:h-10 sm:w-10" />
             </button>
-
-            <motion.div
-              key={selectedIndex}
-              initial={{ opacity: 0, scale: 0.9 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.9 }}
-              transition={{ duration: 0.3 }}
-              className="max-w-5xl max-h-[85vh] mx-4"
-              onClick={(e) => e.stopPropagation()}
-            >
-              <div
-                className="w-full h-full min-h-[50vh] sm:min-h-[70vh] bg-contain bg-center bg-no-repeat rounded-xl"
-                style={{
-                  backgroundImage: `url(${galleryImages[selectedIndex].src})`,
-                }}
-              />
-              <p className="text-center text-sm text-white/60 mt-4">
-                {selectedIndex + 1} / {galleryImages.length}
-              </p>
-            </motion.div>
-
             <button
               onClick={(e) => { e.stopPropagation(); goNext(); }}
-              className="absolute right-4 sm:right-8 text-white/70 hover:text-gold-400 transition-colors z-10"
-              aria-label="Következő"
+              className="absolute right-2 sm:right-6 top-1/2 -translate-y-1/2 z-20 p-3 rounded-full text-white/60 hover:text-white hover:bg-white/10 transition-all"
+              aria-label="Következő kép"
             >
-              <ChevronRight className="h-10 w-10" />
+              <ChevronRight className="h-8 w-8 sm:h-10 sm:w-10" />
             </button>
+
+            {/* Image container */}
+            <div
+              className="flex-1 flex items-center justify-center p-4 sm:p-8"
+              onWheel={handleWheel}
+              onMouseDown={handleMouseDown}
+              onMouseMove={handleMouseMove}
+              onMouseUp={handleMouseUp}
+              onMouseLeave={handleMouseUp}
+              onTouchStart={handleTouchStart}
+              onTouchEnd={handleTouchEnd}
+            >
+              <motion.div
+                key={selectedIndex}
+                initial={{ opacity: 0, scale: 0.92 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.92 }}
+                transition={{ duration: 0.3, ease: "easeOut" }}
+                className="w-full h-full flex items-center justify-center"
+              >
+                <div
+                  ref={imageRef}
+                  className="w-full h-full max-w-[90vw] max-h-[85vh] bg-contain bg-center bg-no-repeat transition-transform duration-100 ease-out rounded-lg"
+                  style={{
+                    backgroundImage: `url(${current.src})`,
+                    transform: `scale(${scale})`,
+                  }}
+                />
+              </motion.div>
+            </div>
+
+            {/* Bottom caption */}
+            <div className="absolute bottom-0 left-0 right-0 z-20 px-4 sm:px-6 py-4 bg-gradient-to-t from-black/60 to-transparent">
+              <p className="text-sm text-white/80 text-center">
+                {current.alt}
+              </p>
+            </div>
           </motion.div>
         )}
       </AnimatePresence>
-
-      <style jsx>{`
-        .masonry-grid {
-          display: grid;
-          grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-          gap: 1rem;
-          grid-auto-rows: 200px;
-        }
-        @media (min-width: 640px) {
-          .masonry-grid {
-            grid-template-columns: repeat(2, 1fr);
-          }
-        }
-        @media (min-width: 1024px) {
-          .masonry-grid {
-            grid-template-columns: repeat(3, 1fr);
-          }
-        }
-        @media (min-width: 1280px) {
-          .masonry-grid {
-            grid-template-columns: repeat(4, 1fr);
-          }
-        }
-        .masonry-item {
-          overflow: hidden;
-          min-height: 200px;
-        }
-        .masonry-item:nth-child(2) {
-          grid-row: span 2;
-        }
-        .masonry-item:nth-child(5) {
-          grid-row: span 2;
-        }
-        .masonry-item:nth-child(7) {
-          grid-row: span 2;
-        }
-      `}</style>
     </section>
   );
 }
